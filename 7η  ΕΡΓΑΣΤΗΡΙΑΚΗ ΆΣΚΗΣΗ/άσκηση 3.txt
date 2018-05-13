@@ -1,0 +1,215 @@
+.include "m16def.inc"
+.def monades_minute = r19
+.def dekades_minute = r20
+.def monades_second = r21
+.def dekades_second = r22
+.def temp = r16
+.def counter = r17
+.def input = r18
+
+jmp main
+
+Message:
+.dw 0x3030, 0x4d20, 0x4e49, 0x303a, 0x2030, 0x4553, 0x0143	;apothikeush sto instraction memory
+
+wait_usec:    
+	sbiw r24 ,1
+	nop
+	nop
+	nop
+	nop
+	brne wait_usec
+	ret
+
+wait_msec: 
+	push r24
+	push r25
+	ldi r24 , low(998)
+	ldi r25 , high(998)
+	rcall wait_usec
+	pop r25
+	pop r24
+	sbiw r24 , 1
+	brne wait_msec
+	ret
+
+write_2_nibbles: 
+	push r24 
+	in r25 ,PIND  
+	andi r25 ,0x0f
+	andi r24 ,0xf0 
+	add r24 ,r25
+	out PORTD ,r24 
+	sbi PORTD ,PD3 
+	cbi PORTD ,PD3 
+	pop r24 
+	swap r24 
+	andi r24 ,0xf0 
+	add r24 ,r25 
+	out PORTD ,r24 
+	sbi PORTD ,PD3  
+	cbi PORTD ,PD3 
+	ret
+
+lcd_data: 
+	sbi PORTD ,PD2  
+	rcall write_2_nibbles 
+	ldi r24 ,43
+	ldi r25 ,0 
+	rcall wait_usec 
+	ret
+
+lcd_command: 
+	cbi PORTD ,PD2 
+	rcall write_2_nibbles  
+	ldi r24 ,39  
+	ldi r25 ,0  
+	rcall wait_usec 
+	ret
+
+lcd_init:     
+	ldi r24 ,40 
+	ldi r25 ,0
+	rcall wait_msec 
+
+	ldi r24 ,0x30 
+	out PORTD ,r24 
+	sbi PORTD ,PD3 
+	cbi PORTD ,PD3 
+	ldi r24 ,39 
+	ldi r25 ,0 
+	rcall wait_usec 
+					
+	ldi r24 ,0x30 
+	out PORTD ,r24 
+	sbi PORTD ,PD3 
+	cbi PORTD ,PD3 
+	ldi r24 ,39 
+	ldi r25 ,0 
+	rcall wait_usec 
+
+	ldi r24 ,0x20
+	out PORTD ,r24 
+	sbi PORTD ,PD3 
+	cbi PORTD ,PD3 
+	ldi r24 ,39 
+	ldi r25 ,0 
+	rcall wait_usec 
+
+	ldi r24 ,0x28 
+	rcall lcd_command  
+
+	ldi r24 ,0x0c  
+	rcall lcd_command 
+
+	ldi r24 ,0x01 
+	rcall lcd_command 
+
+	ldi r24 ,low(1530) 
+	ldi r25 ,high(1530) 
+	rcall wait_usec 
+
+	ldi r24 ,0x06 
+	rcall lcd_command  
+	ret 
+;***********************************************************************************************
+
+initialize_message:
+	ldi zh, high(Message*2)
+	ldi zl, low(Message*2)
+	ldi counter, 13
+	
+	ldi r24, 0x80
+	rcall lcd_command
+eternal_loop:
+	lpm r24, Z
+	rcall lcd_data
+	adiw zl, 1
+	dec counter
+	brne eternal_loop
+	
+	clr monades_second
+	clr dekades_second
+	clr monades_minute
+	clr dekades_minute
+	ret
+
+counter_increment:
+	inc monades_second					; genikh morfh:  "dekades_minute monades_minute MIN: dekades_second monades_second SEC"
+	cpi monades_second, 0x0a
+	brne end_incr
+
+	clr monades_second
+	inc dekades_second
+	cpi dekades_second, 6
+	brne end_incr
+
+	clr dekades_second
+	inc monades_minute
+	cpi monades_minute, 0x0a
+	brne end_incr
+	
+	clr monades_minute
+	inc dekades_minute
+	cpi dekades_minute, 6
+	brne end_incr
+
+	clr dekades_minute
+
+end_incr:
+	ret
+
+counter_to_lcd:
+	ori monades_second, 0x30			;oloi oi arithmoi exoun os MSB to LLHH ara efarmozoume maska LLHH XXXX
+	ori dekades_second, 0x30
+	ori monades_minute, 0x30
+	ori dekades_minute, 0x30
+
+	ldi r24, 0x80					;epanafora kersora sthn arxh ths othomhs
+	rcall lcd_command
+	mov r24, dekades_minute				;emfanise ta MIN
+	rcall lcd_data
+	mov r24, monades_minute
+	rcall lcd_data
+
+	ldi r24, 0x87					;o kersoras sthn thesh 7 dld sthn DDRAM: 1000 0111
+	rcall lcd_command
+	mov r24, dekades_second				;emfanise ta SEC
+	rcall lcd_data
+	mov r24, monades_second
+	rcall lcd_data
+
+	andi monades_second, 0x0f			;ksanaepanefere otus kataxorites se morfh tetoia oste na ginontai oi prakseis dld 0000xxxx
+	andi dekades_second, 0x0f
+	andi monades_minute, 0x0f
+	andi dekades_minute, 0x0f
+	ret
+
+main:
+	ldi temp, high(RAMEND)
+	out sph, temp
+	ldi temp, low(RAMEND)
+	out spl, temp
+	ser temp
+	out DDRD, temp                    
+	clr temp
+	out DDRB, temp                    ;h B os eisodos
+	rcall lcd_init                    ;arxikopoihsh ths lcd
+	rcall initialize_message          ;emfanisi tou axrikou minimatos
+	
+eternal_loop:
+	sbic PINB, 7			  ;elegxos gia to an einai pathmeno to PB7
+	rcall initialize_message	  ;an einai midenise to xronometro
+	
+	sbis PINB, 0			  ;elegxos gia to an einai pathmeno to PB0
+	brcc eternal_loop		  ;an oxi tote mhn kaneis tipota
+
+	rcall counter_increment		  ;auksisi kata ena sec
+	rcall counter_to_lcd		  ;emfanise
+	
+	ldi r24, low(1000) 		  ;xronokathisterisi
+	ldi r25, high(1000)
+	rcall wait_msec
+
+	rjmp eternal_loop		  ;sunexes programma
+	
